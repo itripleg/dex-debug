@@ -2,9 +2,15 @@
 
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -25,7 +31,7 @@ import {
   Wallet,
   ExternalLink,
 } from "lucide-react";
-import { isAddress, parseEther, formatEther } from "viem";
+import { isAddress, parseEther, formatEther, Address } from "viem";
 import {
   useAccount,
   useBalance,
@@ -37,9 +43,11 @@ import {
 // Import hooks and utilities
 import { useFactoryContract } from "@/new-hooks/useFactoryContract";
 import { useToken } from "@/contexts/TokenContext";
-import { FACTORY_ADDRESS, FACTORY_ABI } from "@/types";
+import { useTokenTrades } from "@/new-hooks/useTokenTrades";
+import { FACTORY_ADDRESS, FACTORY_ABI, TOKEN_ABI } from "@/types";
 import { formatTokenPrice } from "@/utils/tokenPriceFormatter";
 import { useToast } from "@/hooks/use-toast";
+import RechartsLineChart from "@/app/dex/components/charts/RechartsLineChart";
 
 export default function DebugTradePage() {
   const [mounted, setMounted] = useState(false);
@@ -109,11 +117,10 @@ export default function DebugTradePage() {
       />
 
       <Tabs defaultValue="calculations" className="w-full">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="calculations">Price Calculations</TabsTrigger>
-          <TabsTrigger value="simulation">Trade Simulation</TabsTrigger>
           <TabsTrigger value="real-trade">Real Trading</TabsTrigger>
-          <TabsTrigger value="chart-data">Chart Data Test</TabsTrigger>
+          <TabsTrigger value="chart-data">Chart Verification</TabsTrigger>
         </TabsList>
 
         {/* Price Calculations Tab */}
@@ -127,18 +134,9 @@ export default function DebugTradePage() {
           </div>
         </TabsContent>
 
-        {/* Trade Simulation Tab */}
-        <TabsContent value="simulation">
-          <TradeSimulationDebug
-            token={testToken}
-            tokenExists={tokenExists}
-            refreshKey={refreshKey}
-          />
-        </TabsContent>
-
         {/* Real Trading Tab */}
         <TabsContent value="real-trade">
-          <RealTradingDebug
+          <LiveTrading
             token={testToken}
             tokenExists={tokenExists}
             userAddress={userAddress}
@@ -149,8 +147,8 @@ export default function DebugTradePage() {
 
         {/* Chart Data Test Tab */}
         <TabsContent value="chart-data">
-          <ChartDataDebug
-            token={testToken}
+          <ChartVerification
+            token={tokenData}
             tokenExists={tokenExists}
             refreshKey={refreshKey}
           />
@@ -702,39 +700,50 @@ function PriceCalculationsDebug({
   );
 }
 
-// Trade Simulation Debug (placeholder)
-function TradeSimulationDebug({
+// Chart Verification Component
+function ChartVerification({
   token,
   tokenExists,
   refreshKey,
 }: {
-  token: string;
+  token: any;
   tokenExists: boolean;
   refreshKey: number;
 }) {
+  const { trades, loading, error } = useTokenTrades(token?.address);
+
+  if (!tokenExists) {
+    return (
+      <Card>
+        <CardContent className="p-8 text-center">
+          <AlertCircle className="h-12 w-12 mx-auto text-yellow-500 mb-4" />
+          <h3 className="text-lg font-medium mb-2">Token Required</h3>
+          <p className="text-muted-foreground">
+            Enter a valid token address to test chart accuracy
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Calculator className="h-5 w-5 text-blue-500" />
-          Trade Simulation (Coming Soon)
+          <BarChart3 className="h-5 w-5 text-purple-500" />
+          Chart Verification
         </CardTitle>
       </CardHeader>
-      <CardContent>
-        <div className="text-center py-8 text-muted-foreground">
-          <Calculator className="h-12 w-12 mx-auto mb-4 opacity-50" />
-          <p>
-            This will simulate trades without executing them, showing gas
-            estimates and expected outcomes.
-          </p>
-        </div>
+      <CardContent className="h-[400px]">
+        {error && <p className="text-red-500">{error}</p>}
+        <RechartsLineChart trades={trades} loading={loading} token={token} />
       </CardContent>
     </Card>
   );
 }
 
-// Real Trading Debug (placeholder)
-function RealTradingDebug({
+// Live Trading Component
+function LiveTrading({
   token,
   tokenExists,
   userAddress,
@@ -747,59 +756,143 @@ function RealTradingDebug({
   isConnected: boolean;
   refreshKey: number;
 }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Wallet className="h-5 w-5 text-green-500" />
-          Real Trading Test (Coming Soon)
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="text-center py-8 text-muted-foreground">
-          <Wallet className="h-12 w-12 mx-auto mb-4 opacity-50" />
-          <p>
-            This will allow you to execute small test trades and compare
-            expected vs actual outcomes.
-          </p>
-          {!isConnected && (
-            <p className="text-sm mt-2 text-yellow-600">
-              Connect your wallet to access this feature.
-            </p>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
+  const { toast } = useToast();
+  const { buyTokens, sellTokens, isWritePending } = useFactoryContract();
 
-// Chart Data Debug (placeholder)
-function ChartDataDebug({
-  token,
-  tokenExists,
-  refreshKey,
-}: {
-  token: string;
-  tokenExists: boolean;
-  refreshKey: number;
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <BarChart3 className="h-5 w-5 text-purple-500" />
-          Chart Data Test (Coming Soon)
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="text-center py-8 text-muted-foreground">
-          <BarChart3 className="h-12 w-12 mx-auto mb-4 opacity-50" />
-          <p>
-            This will test chart data accuracy, price history formatting, and
-            trade event processing.
+  const [buyAmount, setBuyAmount] = useState("0.01");
+  const [sellAmount, setSellAmount] = useState("100");
+
+  const { data: avaxBalance, refetch: refetchAvaxBalance } = useBalance({
+    address: userAddress as Address,
+  });
+
+  const { data: tokenBalance, refetch: refetchTokenBalance } = useBalance({
+    address: userAddress as Address,
+    token: token as Address,
+  });
+
+  const { writeContract: approve, isPending: isApproving } = useWriteContract();
+
+  const { data: allowance, refetch: refetchAllowance } = useReadContract({
+    address: token as Address,
+    abi: TOKEN_ABI,
+    functionName: "allowance",
+    args: [userAddress as Address, FACTORY_ADDRESS],
+    query: {
+      enabled: !!userAddress && !!token,
+    },
+  });
+
+  const needsApproval = useMemo(() => {
+    if (!sellAmount || !allowance) return false;
+    try {
+      return parseEther(sellAmount) > allowance;
+    } catch {
+      return false;
+    }
+  }, [sellAmount, allowance]);
+
+  const handleBuy = () => {
+    if (!token || !buyAmount) return;
+    buyTokens(token as Address, buyAmount);
+  };
+
+  const handleSell = () => {
+    if (!token || !sellAmount) return;
+    sellTokens(token as Address, sellAmount);
+  };
+
+  const handleApprove = () => {
+    if (!token || !sellAmount) return;
+    approve({
+      address: token as Address,
+      abi: TOKEN_ABI,
+      functionName: "approve",
+      args: [FACTORY_ADDRESS, parseEther(sellAmount)],
+    });
+  };
+
+  useEffect(() => {
+    refetchAvaxBalance();
+    refetchTokenBalance();
+    refetchAllowance();
+  }, [refreshKey, isWritePending]);
+
+  if (!isConnected || !tokenExists) {
+    return (
+      <Card>
+        <CardContent className="p-8 text-center">
+          <AlertCircle className="h-12 w-12 mx-auto text-yellow-500 mb-4" />
+          <h3 className="text-lg font-medium mb-2">
+            Connect Wallet & Select Token
+          </h3>
+          <p className="text-muted-foreground">
+            Please connect your wallet and provide a valid token address to
+            start trading.
           </p>
-        </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Buy {token.slice(0, 6)}</CardTitle>
+          <CardDescription>
+            Your AVAX Balance: {formatEther(avaxBalance?.value ?? 0n)}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="buy-amount">Amount in AVAX</Label>
+              <Input
+                id="buy-amount"
+                value={buyAmount}
+                onChange={(e) => setBuyAmount(e.target.value)}
+                type="number"
+                step="0.01"
+              />
+            </div>
+            <Button onClick={handleBuy} disabled={isWritePending}>
+              {isWritePending ? "Buying..." : "Buy"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Sell {token.slice(0, 6)}</CardTitle>
+          <CardDescription>
+            Your Token Balance: {formatEther(tokenBalance?.value ?? 0n)}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="sell-amount">Amount in Tokens</Label>
+              <Input
+                id="sell-amount"
+                value={sellAmount}
+                onChange={(e) => setSellAmount(e.target.value)}
+                type="number"
+                step="1"
+              />
+            </div>
+            {needsApproval ? (
+              <Button onClick={handleApprove} disabled={isApproving}>
+                {isApproving ? "Approving..." : "Approve"}
+              </Button>
+            ) : (
+              <Button onClick={handleSell} disabled={isWritePending}>
+                {isWritePending ? "Selling..." : "Sell"}
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
